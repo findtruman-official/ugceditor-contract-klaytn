@@ -56,7 +56,7 @@ contract StoryNFT_TEST is
         override
         returns (string memory)
     {
-        return "";
+        return tokenId.toString();
     }
 
     function safeMint(address to) public onlyRole(MINTER_ROLE) {

@@ -21,6 +21,18 @@ describe("StoryFactory", function () {
   let storyBeacon: Contract;
   let finds: Contract;
 
+  const TaskStatus = {
+    TODO: 0,
+    DONE: 1,
+    CANCELLED: 2,
+  };
+  const SubmitStatus = {
+    PENDING: 0,
+    APPROVED: 1,
+    REJECTED: 2,
+    WITHDRAWED: 3,
+  };
+
   it("setup", async () => {
     StoryFactory = await ethers.getContractFactory("StoryFactory");
     StoryFactory_TEST = await ethers.getContractFactory("StoryFactory_TEST");
@@ -81,8 +93,8 @@ describe("StoryFactory", function () {
           "BASE", // string memory base,
           finds.address, //address token,
           200,
-          3,
-          1
+          5,
+          3
         )
       ).to.be.revertedWith("only author");
     });
@@ -95,8 +107,8 @@ describe("StoryFactory", function () {
           "BASE", // string memory base,
           finds.address, //address token,
           200,
-          3,
-          1
+          5,
+          3
         )
       )
         .to.emit(storyFactory, "StoryNftPublished")
@@ -105,9 +117,9 @@ describe("StoryFactory", function () {
     it("sale data is correct", async () => {
       const data = await storyFactory.sales(1);
       expect(data.id).eq(1);
-      expect(data.total).eq(3);
+      expect(data.total).eq(5);
       expect(data.sold).eq(0);
-      expect(data.authorReserved).eq(1);
+      expect(data.authorReserved).eq(3);
       expect(data.authorClaimed).eq(0);
       expect(data.recv).eq(addr1.address);
       expect(data.token).eq(finds.address);
@@ -165,9 +177,9 @@ describe("StoryFactory", function () {
     it("sale data is correct", async () => {
       const data = await storyFactory.sales(1);
       expect(data.id).eq(1);
-      expect(data.total).eq(3);
+      expect(data.total).eq(5);
       expect(data.sold).eq(1);
-      expect(data.authorReserved).eq(1);
+      expect(data.authorReserved).eq(3);
       expect(data.authorClaimed).eq(0);
       expect(data.recv).eq(addr1.address);
       expect(data.token).eq(finds.address);
@@ -180,6 +192,211 @@ describe("StoryFactory", function () {
       await expect(
         storyFactory.connect(addr2).mintStoryNft(1)
       ).to.be.revertedWith("sold out");
+    });
+  });
+
+  describe("Author Claim Reserved NFT", () => {
+    it("only author can claim reserved nft", async () => {
+      await expect(
+        storyFactory.connect(addr2).claimAuthorReservedNft(1, 1)
+      ).to.be.revertedWith("only author");
+    });
+
+    it("claim author reserved nft emits AuthorClaimed event", async () => {
+      await expect(storyFactory.connect(addr1).claimAuthorReservedNft(1, 3))
+        .to.emit(storyFactory, "AuthorClaimed")
+        .withArgs(1, 3);
+    });
+    it("data is correct", async () => {
+      const data = await storyFactory.sales(1);
+      expect(data.authorReserved).eq(3);
+      expect(data.authorClaimed).eq(3);
+
+      const nft = StoryNFT.attach((await storyFactory.sales(1)).nft);
+      expect(await nft.balanceOf(addr1.address)).eq(3);
+    });
+
+    it("total amount is limited", async () => {
+      await expect(
+        storyFactory.connect(addr1).claimAuthorReservedNft(1, 1)
+      ).to.be.revertedWith("not enough amount");
+    });
+  });
+
+  describe("Task", () => {
+    describe("Create", () => {
+      it("only author can create task", async () => {
+        const nft = StoryNFT.attach((await storyFactory.sales(1)).nft);
+
+        await expect(
+          storyFactory
+            .connect(addr2)
+            .createTask(1, "TASK_CID", nft.address, [3])
+        ).to.be.revertedWith("only author");
+      });
+      it("should be owner of reward nfts", async () => {
+        const nft = StoryNFT.attach((await storyFactory.sales(1)).nft);
+
+        await expect(
+          storyFactory
+            .connect(addr1)
+            .createTask(1, "TASK_CID", nft.address, [1])
+        ).to.be.revertedWith("not nft owner");
+      });
+      it("create task emits TaskUpdated", async () => {
+        const nft = StoryNFT.attach((await storyFactory.sales(1)).nft);
+        await nft.connect(addr1).setApprovalForAll(storyFactory.address, true);
+
+        await expect(
+          storyFactory
+            .connect(addr1)
+            .createTask(1, "TASK_CID", nft.address, [3])
+        )
+          .to.emit(storyFactory, "TaskUpdated")
+          .withArgs(1, 1);
+      });
+      it("task data is correct", async () => {
+        const nft = StoryNFT.attach((await storyFactory.sales(1)).nft);
+        // check task
+        const data = await storyFactory.getTask(1, 1);
+
+        expect(data.id).eq(1);
+        expect(data.cid).eq("TASK_CID");
+        expect(data.creator).eq(addr1.address);
+        expect(data.nft).eq(nft.address);
+        expect(data.rewardNfts.length).eq(1);
+        expect(data.rewardNfts[0]).eq(3);
+        expect(data.status).eq(TaskStatus.TODO);
+        expect(data.nextSubmitId).eq(1);
+        // check nft owner
+        expect(await nft.ownerOf(3), storyFactory.address);
+      });
+    });
+    describe("Update", () => {
+      it("only creator can update task", async () => {
+        await expect(
+          storyFactory.connect(addr2).updateTask(1, 1, "NEW_TASK_CID")
+        ).to.be.revertedWith("not creator");
+      });
+      it("update task emits TaskUpdated", async () => {
+        await expect(
+          storyFactory.connect(addr1).updateTask(1, 1, "NEW_TASK_CID")
+        )
+          .to.emit(storyFactory, "TaskUpdated")
+          .withArgs(1, 1);
+      });
+      it("task data is correct", async () => {
+        // check task
+        const data = await storyFactory.getTask(1, 1);
+        expect(data.cid).eq("NEW_TASK_CID");
+      });
+    });
+    describe("Cancel", () => {
+      it("only creator can cancel task", async () => {
+        await expect(
+          storyFactory.connect(addr2).cancelTask(1, 1)
+        ).to.be.revertedWith("not creator");
+      });
+      it("cancel task emits TaskUpdated", async () => {
+        await expect(storyFactory.connect(addr1).cancelTask(1, 1))
+          .to.emit(storyFactory, "TaskUpdated")
+          .withArgs(1, 1);
+      });
+      it("task data is correct", async () => {
+        // check task
+        const data = await storyFactory.getTask(1, 1);
+        expect(data.status).eq(TaskStatus.CANCELLED);
+
+        // check nft owner
+        const nft = StoryNFT.attach((await storyFactory.sales(1)).nft);
+        expect(await nft.ownerOf(3), addr1.address);
+      });
+    });
+    describe("Submit", () => {
+      it("submit emits TaskUpdated", async () => {
+        // prepare test task
+        const nft = StoryNFT.attach((await storyFactory.sales(1)).nft);
+        await nft.connect(addr1).setApprovalForAll(storyFactory.address, true);
+
+        await storyFactory
+          .connect(addr1)
+          .createTask(1, "NEW_TASK_CID", nft.address, [3]);
+
+        await expect(
+          storyFactory.connect(addr2).createTaskSubmit(1, 2, "SUBMIT_CID_ADDR2")
+        )
+          .to.emit(storyFactory, "TaskUpdated")
+          .withArgs(1, 2);
+      });
+      it("task data is correct", async () => {
+        const task = await storyFactory.getTask(1, 2);
+        expect(task.nextSubmitId).eq(2);
+
+        const submit = await storyFactory.getSubmit(1, 2, 1);
+        expect(submit.id).eq(1);
+        expect(submit.creator).eq(addr2.address);
+        expect(submit.status).eq(SubmitStatus.PENDING);
+        expect(submit.cid).eq("SUBMIT_CID_ADDR2");
+      });
+    });
+    describe("Withdraw", () => {
+      it("only submit creator can withdraw submit", async () => {
+        await expect(
+          storyFactory.connect(addr1).withdrawTaskSubmit(1, 2, 1)
+        ).to.be.revertedWith("not creator");
+      });
+      it("withdraw emits TaskUpdated", async () => {
+        await expect(storyFactory.connect(addr2).withdrawTaskSubmit(1, 2, 1))
+          .to.emit(storyFactory, "TaskUpdated")
+          .withArgs(1, 2);
+      });
+      it("submit data is correct", async () => {
+        const submit = await storyFactory.getSubmit(1, 2, 1);
+        expect(submit.status).eq(SubmitStatus.WITHDRAWED);
+      });
+    });
+    describe("Mark as Done", () => {
+      it("only creator can mark as done", async () => {
+        await expect(
+          storyFactory.connect(addr2).markTaskDone(1, 2, 1)
+        ).to.be.revertedWith("not creator");
+      });
+      it("selected submitId should exist and is Pending", async () => {
+        await expect(
+          storyFactory.connect(addr1).markTaskDone(1, 2, 1)
+        ).to.be.revertedWith("task submit status wrong");
+
+        await expect(
+          storyFactory.connect(addr1).markTaskDone(1, 2, 999)
+        ).to.be.revertedWith("task submit not exist");
+      });
+
+      it("mark as done emits TaskUpdated", async () => {
+        await storyFactory
+          .connect(addr2)
+          .createTaskSubmit(1, 2, "SUBMIT_CID_ADDR2_2");
+        await storyFactory
+          .connect(addr2)
+          .createTaskSubmit(1, 2, "SUBMIT_CID_ADDR2_3");
+        await expect(storyFactory.connect(addr1).markTaskDone(1, 2, 2))
+          .to.emit(storyFactory, "TaskUpdated")
+          .withArgs(1, 2);
+      });
+      it("data is correct", async () => {
+        const task = await storyFactory.getTask(1, 2);
+        expect(task.status).eq(TaskStatus.DONE);
+
+        const submit1 = await storyFactory.getSubmit(1, 2, 1);
+        const submit2 = await storyFactory.getSubmit(1, 2, 2);
+        const submit3 = await storyFactory.getSubmit(1, 2, 3);
+
+        expect(submit1.status).eq(SubmitStatus.WITHDRAWED);
+        expect(submit2.status).eq(SubmitStatus.APPROVED);
+        expect(submit3.status).eq(SubmitStatus.REJECTED);
+
+        const nft = StoryNFT.attach((await storyFactory.sales(1)).nft);
+        expect(await nft.ownerOf(3)).eq(addr2.address);
+      });
     });
   });
 
@@ -218,8 +435,8 @@ describe("StoryFactory", function () {
     it("beacon upgrade is available", async () => {
       await upgrades.upgradeBeacon(storyBeacon, StoryNFT_TEST);
 
-      expect(await proxy1.tokenURI(1)).to.eq("");
-      expect(await proxy2.tokenURI(1)).to.eq("");
+      expect(await proxy1.tokenURI(1)).to.eq("1");
+      expect(await proxy2.tokenURI(1)).to.eq("1");
 
       // // manual check tx gasUsed
       // await Promise.all((await getAllTransactions()).map(showTxGasUsed));

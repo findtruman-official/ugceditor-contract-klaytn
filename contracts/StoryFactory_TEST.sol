@@ -47,14 +47,47 @@ contract StoryFactory_TEST is
     mapping(uint256 => Story) public stories;
     mapping(uint256 => Sale) public sales;
 
-    modifier onlyAuthor(uint256 id) {
-        require(stories[id].author == msg.sender, "only author");
-        _;
+    // Tasks
+    enum TaskStatus {
+        TODO,
+        DONE,
+        CANCELLED
     }
-    modifier onlySaleExist(uint256 id) {
-        require(sales[id].id != 0, "sale not exist");
-        _;
+    enum SubmitStatus {
+        PENDING,
+        APPROVED,
+        REJECTED,
+        WITHDRAWED
     }
+
+    struct StoryTasks {
+        uint256 storyId;
+        uint256 nextTaskId;
+        // mapping(uint256 => Task) tasks;
+    }
+    struct Submit {
+        uint256 id;
+        address creator;
+        SubmitStatus status;
+        string cid;
+    }
+    struct Task {
+        uint256 id;
+        string cid;
+        address creator;
+        address nft;
+        uint256[] rewardNfts;
+        TaskStatus status;
+        uint256 nextSubmitId;
+        // mapping(uint256 => Submit) submits;
+    }
+    event TaskUpdated(uint256 storyId, uint256 taskId);
+    event AuthorClaimed(uint256 storyId, uint256 amount);
+
+    mapping(uint256 => StoryTasks) public storyTasks;
+    mapping(uint256 => mapping(uint256 => Task)) public tasks; // tasks[storyId][taskId]
+    mapping(uint256 => mapping(uint256 => mapping(uint256 => Submit)))
+        public submits; // submits[storyId][taskId][submitId]
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {}

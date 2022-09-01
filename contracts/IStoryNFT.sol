@@ -9,4 +9,12 @@ interface IStoryNFT {
     ) external;
 
     function safeMint(address to) external;
+
+    function ownerOf(uint256 tokenId) external returns (address);
+
+    function safeTransferFrom(
+        address from,
+        address to,
+        uint256 tokenId
+    ) external;
 }
