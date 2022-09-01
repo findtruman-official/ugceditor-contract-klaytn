@@ -58,7 +58,7 @@ contract StoryFactory is
     enum SubmitStatus {
         PENDING,
         APPROVED,
-        REJECTED,
+        REJECTED, // not used
         WITHDRAWED
     }
 
@@ -84,6 +84,7 @@ contract StoryFactory is
         // mapping(uint256 => Submit) submits;
     }
     event TaskUpdated(uint256 storyId, uint256 taskId);
+    event SubmitUpdated(uint256 storyId, uint256 taskId, uint256 submitId);
     event AuthorClaimed(uint256 storyId, uint256 amount);
 
     mapping(uint256 => StoryTasks) public storyTasks;
@@ -340,7 +341,7 @@ contract StoryFactory is
         submits[storyId][taskId][submitId].cid = cid;
         submits[storyId][taskId][submitId].status = SubmitStatus.PENDING;
 
-        emit TaskUpdated(storyId, taskId);
+        emit SubmitUpdated(storyId, taskId, submitId);
     }
 
     // TODO user withdraw task
@@ -360,7 +361,7 @@ contract StoryFactory is
         onlySubmitCreator(storyId, taskId, submitId)
     {
         submits[storyId][taskId][submitId].status = SubmitStatus.WITHDRAWED;
-        emit TaskUpdated(storyId, taskId);
+        emit SubmitUpdated(storyId, taskId, submitId);
     }
 
     // TODO author mark task as done
@@ -381,23 +382,13 @@ contract StoryFactory is
     {
         Task storage task = tasks[storyId][taskId];
         task.status = TaskStatus.DONE;
-        mapping(uint256 => Submit) storage taskSubmits = submits[storyId][
-            taskId
+        Submit storage selectedSubmit = submits[storyId][taskId][
+            selectedSubmitId
         ];
+        selectedSubmit.status = SubmitStatus.APPROVED;
+        emit SubmitUpdated(storyId, taskId, selectedSubmit.id);
 
-        for (uint256 idx = 1; idx < task.nextSubmitId; idx++) {
-            //
-            Submit storage submit = taskSubmits[idx];
-            if (submit.status != SubmitStatus.PENDING) {
-                continue;
-            }
-            if (submit.id == selectedSubmitId) {
-                submit.status = SubmitStatus.APPROVED;
-            } else {
-                submit.status = SubmitStatus.REJECTED;
-            }
-        }
-        address submitCreator = taskSubmits[selectedSubmitId].creator;
+        address submitCreator = selectedSubmit.creator;
         for (uint256 idx = 0; idx < task.rewardNfts.length; idx++) {
             IStoryNFT(task.nft).safeTransferFrom(
                 address(this),

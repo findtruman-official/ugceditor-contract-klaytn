@@ -313,7 +313,7 @@ describe("StoryFactory", function () {
       });
     });
     describe("Submit", () => {
-      it("submit emits TaskUpdated", async () => {
+      it("submit emits SubmitUpdated", async () => {
         // prepare test task
         const nft = StoryNFT.attach((await storyFactory.sales(1)).nft);
         await nft.connect(addr1).setApprovalForAll(storyFactory.address, true);
@@ -325,8 +325,8 @@ describe("StoryFactory", function () {
         await expect(
           storyFactory.connect(addr2).createTaskSubmit(1, 2, "SUBMIT_CID_ADDR2")
         )
-          .to.emit(storyFactory, "TaskUpdated")
-          .withArgs(1, 2);
+          .to.emit(storyFactory, "SubmitUpdated")
+          .withArgs(1, 2, 1);
       });
       it("task data is correct", async () => {
         const task = await storyFactory.getTask(1, 2);
@@ -345,10 +345,10 @@ describe("StoryFactory", function () {
           storyFactory.connect(addr1).withdrawTaskSubmit(1, 2, 1)
         ).to.be.revertedWith("not creator");
       });
-      it("withdraw emits TaskUpdated", async () => {
+      it("withdraw emits SubmitUpdated", async () => {
         await expect(storyFactory.connect(addr2).withdrawTaskSubmit(1, 2, 1))
-          .to.emit(storyFactory, "TaskUpdated")
-          .withArgs(1, 2);
+          .to.emit(storyFactory, "SubmitUpdated")
+          .withArgs(1, 2, 1);
       });
       it("submit data is correct", async () => {
         const submit = await storyFactory.getSubmit(1, 2, 1);
@@ -380,7 +380,9 @@ describe("StoryFactory", function () {
           .createTaskSubmit(1, 2, "SUBMIT_CID_ADDR2_3");
         await expect(storyFactory.connect(addr1).markTaskDone(1, 2, 2))
           .to.emit(storyFactory, "TaskUpdated")
-          .withArgs(1, 2);
+          .withArgs(1, 2)
+          .emit(storyFactory, "SubmitUpdated")
+          .withArgs(1, 2, 2);
       });
       it("data is correct", async () => {
         const task = await storyFactory.getTask(1, 2);
@@ -392,7 +394,7 @@ describe("StoryFactory", function () {
 
         expect(submit1.status).eq(SubmitStatus.WITHDRAWED);
         expect(submit2.status).eq(SubmitStatus.APPROVED);
-        expect(submit3.status).eq(SubmitStatus.REJECTED);
+        expect(submit3.status).eq(SubmitStatus.PENDING);
 
         const nft = StoryNFT.attach((await storyFactory.sales(1)).nft);
         expect(await nft.ownerOf(3)).eq(addr2.address);
